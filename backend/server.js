@@ -29,9 +29,15 @@ io.on('connection', (socket) => {
         })
 
   })
+  socket.on("offer",(data)=>{
+    io.to(data.targetId).emit("offer",{
+        offer:data.offer,
+        targetId:targetId//snder id 
+    })
+  })
+
+  
 });
-
-
 
 httpServer.listen(PORT,()=>{
     console.log("server started ",PORT)
