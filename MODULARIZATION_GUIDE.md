@@ -24,33 +24,22 @@ Is guide me tumhare WebRTC application ko clean, maintainable aur modular struct
 
 ## Target Structure
 
-### Frontend Structure
+### Frontend Structure (Simple Component Separation)
 ```
 frontend/src/
 ├── components/
-│   ├── ChatSection/
-│   │   ├── ChatSection.jsx
-│   │   ├── ChatHeader.jsx
-│   │   ├── ChatMessages.jsx
-│   │   └── ChatInput.jsx
-│   ├── VideoSection/
-│   │   ├── VideoSection.jsx
-│   │   ├── LocalVideo.jsx
-│   │   └── RemoteVideo.jsx
-├── hooks/
-│   ├── useSocket.js
-│   ├── useWebRTC.js
-│   ├── useCamera.js
-│   └── useChat.js
-├── services/
-│   ├── socketService.js
-│   └── webrtcService.js
-├── utils/
-│   ├── constants.js
-│   └── helpers.js
-├── App.jsx (minimal - sirf composition)
+│   ├── ChatHeader.jsx
+│   ├── ChatMessages.jsx
+│   ├── ChatInput.jsx
+│   ├── ChatSection.jsx
+│   ├── LocalVideo.jsx
+│   ├── RemoteVideo.jsx
+│   └── VideoSection.jsx
+├── App.jsx (clean - sirf components use karke)
 └── main.jsx
 ```
+
+**Note:** No custom hooks, no services, no utils. Sirf UI components alag files me.
 
 ### Backend Structure
 ```
@@ -167,241 +156,25 @@ httpServer.listen(config.PORT, () => {
 
 ---
 
-### Phase 2: Frontend Modularization
+### Phase 2: Frontend Modularization (Simple Component Separation)
 
-#### Step 2.1: Constants File Banao
-**File:** `frontend/src/utils/constants.js`
-```javascript
-export const SOCKET_URL = "http://localhost:9000"
+**Important:** Sab logic App.jsx me hi rahega. Sirf UI ko components me separate karenge.
 
-export const ICE_SERVERS = [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" }
-]
-```
-
-#### Step 2.2: Socket Service
-**File:** `frontend/src/services/socketService.js`
-```javascript
-import { io } from "socket.io-client"
-import { SOCKET_URL } from "../utils/constants"
-
-class SocketService {
-  constructor() {
-    this.socket = null
-  }
-  
-  connect() {
-    this.socket = io(SOCKET_URL)
-    return this.socket
-  }
-  
-  emit(event, data) {
-    this.socket?.emit(event, data)
-  }
-  
-  on(event, callback) {
-    this.socket?.on(event, callback)
-  }
-  
-  off(event, callback) {
-    this.socket?.off(event, callback)
-  }
-}
-
-export default new SocketService()
-```
-
-#### Step 2.3: useSocket Hook
-**File:** `frontend/src/hooks/useSocket.js`
-```javascript
-import { useState, useEffect } from "react"
-import socketService from "../services/socketService"
-
-export const useSocket = () => {
-  const [socketID, setSocketID] = useState("")
-  
-  useEffect(() => {
-    const socket = socketService.connect()
-    
-    socket.on("connect", () => {
-      setSocketID(socket.id)
-    })
-    
-    return () => {
-      socket.off("connect")
-    }
-  }, [])
-  
-  return { socketID, socket: socketService.socket }
-}
-```
-
-#### Step 2.4: useCamera Hook
-**File:** `frontend/src/hooks/useCamera.js`
-```javascript
-import { useState, useRef } from "react"
-
-export const useCamera = () => {
-  const [localVideoStream, setLocalVideoStream] = useState(null)
-  const localVideoRef = useRef(null)
-  
-  const getCamera = async () => {
-    if (localVideoStream) return localVideoStream
-    
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: true, 
-        audio: true 
-      })
-      
-      setLocalVideoStream(stream)
-      
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream
-      }
-      
-      return stream
-    } catch (error) {
-      console.error("Camera access denied:", error)
-      alert("Video and audio required")
-      throw error
-    }
-  }
-  
-  const stopCamera = () => {
-    if (localVideoStream) {
-      localVideoStream.getTracks().forEach(track => track.stop())
-      setLocalVideoStream(null)
-    }
-  }
-  
-  return { 
-    localVideoStream, 
-    localVideoRef, 
-    getCamera, 
-    stopCamera 
-  }
-}
-```
-
-#### Step 2.5: useWebRTC Hook
-**File:** `frontend/src/hooks/useWebRTC.js`
-```javascript
-import { useRef, useCallback } from "react"
-import { ICE_SERVERS } from "../utils/constants"
-import socketService from "../services/socketService"
-
-export const useWebRTC = (localVideoStream, getCamera) => {
-  const pc = useRef(null)
-  const remoteRef = useRef(null)
-  
-  const connectPC = useCallback(() => {
-    pc.current = new RTCPeerConnection({ iceServers: ICE_SERVERS })
-    
-    pc.current.onicecandidate = (event) => {
-      if (event.candidate) {
-        socketService.emit("ice-candidate", {
-          targetId: remoteRef.current,
-          candidate: event.candidate
-        })
-      }
-    }
-    
-    return pc.current
-  }, [])
-  
-  const sendOffer = useCallback(async (targetId) => {
-    remoteRef.current = targetId
-    
-    let stream = localVideoStream
-    if (!stream) {
-      stream = await getCamera()
-    }
-    
-    connectPC()
-    stream.getTracks().forEach(track => 
-      pc.current.addTrack(track, stream)
-    )
-    
-    const offer = await pc.current.createOffer()
-    await pc.current.setLocalDescription(offer)
-    
-    socketService.emit("offer", { targetId, offer })
-  }, [localVideoStream, getCamera, connectPC])
-  
-  return { 
-    pc, 
-    remoteRef, 
-    sendOffer, 
-    connectPC 
-  }
-}
-```
-
-#### Step 2.6: useChat Hook
-**File:** `frontend/src/hooks/useChat.js`
-```javascript
-import { useState, useEffect } from "react"
-import socketService from "../services/socketService"
-
-export const useChat = () => {
-  const [targetId, setTargetId] = useState("")
-  const [message, setMessage] = useState("")
-  const [allMessage, setAllMessage] = useState([])
-  
-  useEffect(() => {
-    socketService.on("receiver", (receiverData) => {
-      setAllMessage(prev => [...prev, {
-        receiverData,
-        isOwn: false
-      }])
-    })
-    
-    return () => {
-      socketService.off("receiver")
-    }
-  }, [])
-  
-  const sendMessage = () => {
-    if (message.trim()) {
-      setAllMessage(prev => [...prev, {
-        targetId,
-        message,
-        isOwn: true
-      }])
-      
-      socketService.emit("sender", { targetId, message })
-      setMessage("")
-    }
-  }
-  
-  return {
-    targetId,
-    setTargetId,
-    message,
-    setMessage,
-    allMessage,
-    sendMessage
-  }
-}
-```
-
-#### Step 2.7: Chat Components
-
-**File:** `frontend/src/components/ChatSection/ChatHeader.jsx`
+#### Step 2.1: ChatHeader Component
+**File:** `frontend/src/components/ChatHeader.jsx`
 ```javascript
 export const ChatHeader = ({ socketID }) => {
   return <div className="userHeader">{socketID}</div>
 }
 ```
 
-**File:** `frontend/src/components/ChatSection/ChatMessages.jsx`
+#### Step 2.2: ChatMessages Component
+**File:** `frontend/src/components/ChatMessages.jsx`
 ```javascript
-export const ChatMessages = ({ messages }) => {
+export const ChatMessages = ({ allMessage }) => {
   return (
     <div className="chatArea">
-      {messages.map((msg, index) => (
+      {allMessage.map((msg, index) => (
         <div
           key={index}
           className={msg.isOwn ? "message own" : "message other"}
@@ -419,15 +192,16 @@ export const ChatMessages = ({ messages }) => {
 }
 ```
 
-**File:** `frontend/src/components/ChatSection/ChatInput.jsx`
+#### Step 2.3: ChatInput Component
+**File:** `frontend/src/components/ChatInput.jsx`
 ```javascript
 export const ChatInput = ({ 
   targetId, 
   setTargetId, 
   message, 
   setMessage, 
-  onSendMessage,
-  onSendOffer 
+  sendMessage,
+  sendOffer 
 }) => {
   return (
     <div className="inputArea">
@@ -444,15 +218,16 @@ export const ChatInput = ({
           value={message}
           onChange={(e) => setMessage(e.target.value)}
         />
-        <button onClick={onSendMessage}>Send</button>
-        <button onClick={onSendOffer}>Send Offer</button>
+        <button onClick={sendMessage}>Send</button>
+        <button onClick={sendOffer}>Send Offer</button>
       </div>
     </div>
   )
 }
 ```
 
-**File:** `frontend/src/components/ChatSection/ChatSection.jsx`
+#### Step 2.4: ChatSection Component
+**File:** `frontend/src/components/ChatSection.jsx`
 ```javascript
 import { ChatHeader } from './ChatHeader'
 import { ChatMessages } from './ChatMessages'
@@ -460,56 +235,57 @@ import { ChatInput } from './ChatInput'
 
 export const ChatSection = ({ 
   socketID, 
-  messages, 
+  allMessage, 
   targetId,
   setTargetId,
   message,
   setMessage,
-  onSendMessage,
-  onSendOffer
+  sendMessage,
+  sendOffer
 }) => {
   return (
     <div className="chatSection">
       <ChatHeader socketID={socketID} />
-      <ChatMessages messages={messages} />
+      <ChatMessages allMessage={allMessage} />
       <ChatInput
         targetId={targetId}
         setTargetId={setTargetId}
         message={message}
         setMessage={setMessage}
-        onSendMessage={onSendMessage}
-        onSendOffer={onSendOffer}
+        sendMessage={sendMessage}
+        sendOffer={sendOffer}
       />
     </div>
   )
 }
 ```
 
-#### Step 2.8: Video Components
-
-**File:** `frontend/src/components/VideoSection/LocalVideo.jsx`
+#### Step 2.5: LocalVideo Component
+**File:** `frontend/src/components/LocalVideo.jsx`
 ```javascript
-export const LocalVideo = ({ videoRef }) => {
+export const LocalVideo = ({ localVideoRef }) => {
   return (
     <div className="localVideoContainer">
-      <video ref={videoRef} autoPlay playsInline muted />
+      <video ref={localVideoRef} autoPlay playsInline muted />
     </div>
   )
 }
 ```
 
-**File:** `frontend/src/components/VideoSection/RemoteVideo.jsx`
+#### Step 2.6: RemoteVideo Component
+**File:** `frontend/src/components/RemoteVideo.jsx`
 ```javascript
-export const RemoteVideo = ({ videoRef }) => {
+export const RemoteVideo = ({ remoteVideoRef }) => {
   return (
     <div className="remoteVideoContainer">
-      <video ref={videoRef} autoPlay playsInline />
+      <video ref={remoteVideoRef} autoPlay playsInline />
     </div>
   )
 }
 ```
 
-**File:** `frontend/src/components/VideoSection/VideoSection.jsx`
+#### Step 2.7: VideoSection Component
+**File:** `frontend/src/components/VideoSection.jsx`
 ```javascript
 import { LocalVideo } from './LocalVideo'
 import { RemoteVideo } from './RemoteVideo'
@@ -520,8 +296,8 @@ export const VideoSection = ({ localVideoRef, remoteVideoRef }) => {
       <div className="videoSection">
         <h3>Video Connection</h3>
         <div className="videoContainer">
-          <LocalVideo videoRef={localVideoRef} />
-          <RemoteVideo videoRef={remoteVideoRef} />
+          <LocalVideo localVideoRef={localVideoRef} />
+          <RemoteVideo remoteVideoRef={remoteVideoRef} />
         </div>
       </div>
     </div>
@@ -529,57 +305,180 @@ export const VideoSection = ({ localVideoRef, remoteVideoRef }) => {
 }
 ```
 
-#### Step 2.9: Clean App.jsx
-**File:** `frontend/src/App.jsx`
+#### Step 2.8: Clean App.jsx
+
+**Ab App.jsx aise dikhega:**
+
 ```javascript
+import { useEffect, useRef, useState } from "react"
 import "./App.css"
-import { useSocket } from "./hooks/useSocket"
-import { useChat } from "./hooks/useChat"
-import { useCamera } from "./hooks/useCamera"
-import { useWebRTC } from "./hooks/useWebRTC"
-import { ChatSection } from "./components/ChatSection/ChatSection"
-import { VideoSection } from "./components/VideoSection/VideoSection"
+import { io } from "socket.io-client"
+import { ChatSection } from "./components/ChatSection"
+import { VideoSection } from "./components/VideoSection"
+
+const socket = io("http://localhost:9000")
 
 function App() {
-  const { socketID } = useSocket()
-  const { 
-    targetId, 
-    setTargetId, 
-    message, 
-    setMessage, 
-    allMessage, 
-    sendMessage 
-  } = useChat()
-  
-  const { 
-    localVideoStream, 
-    localVideoRef, 
-    getCamera 
-  } = useCamera()
-  
-  const { sendOffer } = useWebRTC(localVideoStream, getCamera)
-  
-  const handleSendOffer = () => {
-    if (targetId) {
-      sendOffer(targetId)
+  // States (sab wahi rahenge)
+  const [socketID, setSocketID] = useState("")
+  const [targetId, setTargetId] = useState("")
+  const [message, setMessage] = useState("")
+  const [allMessage, setAllMessage] = useState([])
+  const [localVideoStream, setLocalVideoStream] = useState(null)
+  const [remoteVideoStream, setRemoteVideoStream] = useState(null)
+
+  // Refs (sab wahi rahenge)
+  const pc = useRef(null)
+  const remoteRef = useRef(null)
+  const localVideoRef = useRef(null)
+  const remoteVideoRef = useRef(null)
+
+  // Functions (sab wahi rahenge - koi change nahi)
+  const connectPC = () => {
+    console.log("Creating peer connection...")
+    pc.current = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" }
+      ],
+    })
+    
+    pc.current.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("ice-candidate", {
+          targetId: remoteRef.current,
+          candidate: event.candidate
+        })
+      }
+    }
+    
+    pc.current.ontrack = (event) => {
+      setRemoteVideoStream(event.streams[0])
+      remoteVideoRef.current.srcObject = event.streams[0]
     }
   }
-  
+
+  const sendOffer = async () => {
+    remoteRef.current = targetId
+    let stream = localVideoStream
+    
+    if (!localVideoStream) {
+      stream = await getCamera()
+    }
+    
+    connectPC()
+    stream.getTracks().forEach(track => pc.current.addTrack(track, stream))
+    
+    const offer = await pc.current.createOffer()
+    await pc.current.setLocalDescription(offer)
+    
+    socket.emit("offer", {
+      targetId: targetId,
+      offer: offer,
+    })
+  }
+
+  const sendMessage = () => {
+    if (message.trim()) {
+      setAllMessage((prev) => [
+        ...prev,
+        {
+          targetId: targetId,
+          message: message,
+          isOwn: true,
+        },
+      ])
+      socket.emit("sender", {
+        targetId: targetId,
+        message: message,
+      })
+      setMessage("")
+    }
+  }
+
+  const getCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: true, 
+        audio: true 
+      })
+      localVideoRef.current.srcObject = stream
+      setLocalVideoStream(stream)
+      return stream
+    } catch (error) {
+      console.log("camera and video access denied", error)
+      alert("video and audio required")
+    }
+  }
+
+  // useEffect (sab wahi rahega - koi change nahi)
+  useEffect(() => {
+    socket.on("connect", () => {
+      setSocketID(socket.id)
+    })
+
+    socket.on("receiver", (receiverData) => {
+      setAllMessage((prev) => [
+        ...prev,
+        {
+          receiverData,
+          isOwn: false,
+        },
+      ])
+    })
+
+    socket.on("offer", async (data) => {
+      remoteRef.current = data.sender
+      let stream = localVideoStream
+
+      if (!localVideoStream) {
+        stream = await getCamera()
+      }
+
+      connectPC()
+      stream.getTracks().forEach(track => pc.current.addTrack(track, stream))
+
+      await pc.current.setRemoteDescription(data.offer)
+      const answer = await pc.current.createAnswer()
+      await pc.current.setLocalDescription(answer)
+
+      socket.emit("answer", {
+        answer: answer,
+        targetId: data.sender,
+      })
+    })
+
+    socket.on("ice-candidate", async (data) => {
+      if (pc.current && data.candidate) {
+        try {
+          await pc.current.addIceCandidate(new RTCIceCandidate(data.candidate))
+        } catch (error) {
+          console.error("Error adding ICE candidate:", error)
+        }
+      }
+    })
+
+    socket.on("answer", async (data) => {
+      await pc.current.setRemoteDescription(data.answer)
+    })
+  }, [])
+
+  // Return me sirf components use karo
   return (
     <div className="outer">
       <ChatSection
         socketID={socketID}
-        messages={allMessage}
+        allMessage={allMessage}
         targetId={targetId}
         setTargetId={setTargetId}
         message={message}
         setMessage={setMessage}
-        onSendMessage={sendMessage}
-        onSendOffer={handleSendOffer}
+        sendMessage={sendMessage}
+        sendOffer={sendOffer}
       />
       <VideoSection 
         localVideoRef={localVideoRef}
-        remoteVideoRef={null}
+        remoteVideoRef={remoteVideoRef}
       />
     </div>
   )
@@ -588,16 +487,22 @@ function App() {
 export default App
 ```
 
+**Key Points:**
+- Sab logic App.jsx me hi hai (socket, WebRTC, state management)
+- Sirf JSX/UI ko components me separate kiya hai
+- No custom hooks, no services
+- Simple aur straightforward approach
+
 ---
 
 ## Benefits of This Structure
 
 ### Frontend Benefits
-1. **Reusability**: Har component alag se use kar sakte ho
-2. **Testing**: Har hook/component ko independently test kar sakte ho
-3. **Maintainability**: Bug fix karna easy, ek jagah change karo
-4. **Scalability**: Naye features add karna simple
-5. **Readability**: Code samajhna bahut easy
+1. **Clean Code**: App.jsx ab organized hai, UI alag hai
+2. **Reusability**: Components ko reuse kar sakte ho
+3. **Maintainability**: UI change karna easy - component me jao aur edit karo
+4. **Readability**: Code samajhna easy hai
+5. **Simple**: No complex hooks ya services, seedha approach
 
 ### Backend Benefits
 1. **Separation of Concerns**: Har handler apna kaam karta hai
@@ -610,17 +515,22 @@ export default App
 
 ## Migration Strategy
 
-### Approach 1: Big Bang (Risky)
-- Ek baar me sab kuch change karo
-- Fast but risky
-- Testing zaroori
+### Simple Component Separation Approach (Recommended)
 
-### Approach 2: Incremental (Recommended)
-1. Pehle backend modularize karo
-2. Test karo ki sab kaam kar raha hai
-3. Phir frontend hooks banao
-4. Ek ek component migrate karo
-5. Har step pe test karo
+1. **Components folder banao**: `frontend/src/components/`
+2. **Chat components banao** (ek ek karke):
+   - ChatHeader.jsx
+   - ChatMessages.jsx
+   - ChatInput.jsx
+   - ChatSection.jsx
+3. **Video components banao**:
+   - LocalVideo.jsx
+   - RemoteVideo.jsx
+   - VideoSection.jsx
+4. **App.jsx update karo**: Components import karke use karo
+5. **Test karo**: Sab kuch pehle jaisa kaam kar raha hai
+
+**Important:** Sab logic App.jsx me hi rahega, sirf UI components alag honge.
 
 ---
 
@@ -643,31 +553,32 @@ export default App
 
 ## Common Pitfalls to Avoid
 
-1. **Circular Dependencies**: Ek file doosri ko import kare, doosri pehli ko
-2. **Over-Engineering**: Har choti cheez ke liye file mat banao
-3. **Tight Coupling**: Components ko independent rakho
-4. **Missing Cleanup**: useEffect me cleanup functions zaroori hain
-5. **State Management**: Unnecessary state mat banao
+1. **Props Drilling**: Zyada nested components mat banao
+2. **Import Paths**: Relative paths sahi se likho (`./` use karo)
+3. **Missing Props**: Component ko sahi props pass karna mat bhoolna
+4. **CSS Classes**: Existing CSS classes ko maintain karo (same names use karo)
+5. **Over-Engineering**: Har choti cheez ke liye component mat banao
 
 ---
 
 ## Next Steps After Modularization
 
-1. **Add Error Handling**: Proper try-catch blocks
-2. **Add Loading States**: User ko feedback do
-3. **Add Logging**: Debug karne ke liye
-4. **Add TypeScript**: Type safety ke liye
-5. **Add Tests**: Unit aur integration tests
-6. **Add Documentation**: Har function/component ka purpose
+1. **Test Thoroughly**: Sab features kaam kar rahe hain check karo
+2. **Add Comments**: Components me comments add karo
+3. **Improve Styling**: Agar chahiye toh component-specific CSS banao
+4. **Add Error Handling**: Try-catch blocks add karo
+5. **Future**: Baad me custom hooks add kar sakte ho (optional)
 
 ---
 
 ## Conclusion
 
-Yeh modularization tumhare code ko:
-- Clean banayega
-- Maintainable banayega
-- Scalable banayega
-- Professional banayega
+Yeh simple modularization approach tumhare code ko:
+- **Organized** banayega
+- **Clean** banayega  
+- **Maintainable** banayega
+- **Easy to understand** banayega
 
-Ek baar setup ho gaya toh naye features add karna bahut easy ho jayega!
+**Key Point:** Sab logic App.jsx me hi hai, sirf UI ko components me separate kiya hai. Yeh sabse simple aur straightforward approach hai - no custom hooks, no services, no complexity!
+
+Ek baar yeh ho jaye toh baad me agar chahiye toh custom hooks aur services add kar sakte ho.

@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import "./App.css";
 import { io } from "socket.io-client";
 import { useState } from "react";
+import ChatHeader from "./components/ChatHeader";
+import ChatArea from "./components/ChatArea";
 
 const socket = io("http://localhost:9000");
 
@@ -59,8 +61,6 @@ function App() {
       setRemoteVideoStream(event.streams[0])
 
       remoteVideoRef.current.srcObject=event.streams[0]
-      
-
       
 
     }
@@ -234,8 +234,12 @@ function App() {
     <>
       <div className="outer">
         <div className="chatSection">
-          <div className="userHeader">{socketID}</div>
-          <div className="chatArea">
+
+          <ChatHeader socketID={socketID}/>
+          {/* <div className="userHeader">{socketID}</div> */}
+
+          <ChatArea allMessage={allMessage}/>
+          {/* <div className="chatArea">
             {allMessage.map((msg, index) => (
               <div
                 key={index}
@@ -249,7 +253,7 @@ function App() {
                 </div>
               </div>
             ))}
-          </div>
+          </div> */}
           <div className="inputArea">
             <input
               type="text"
