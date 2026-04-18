@@ -1,27 +1,40 @@
-const express =require("express")
-const  http =require("http")
-const config=require("./config/config")
-const { Server } = require('socket.io');
+const express = require("express");
+const http = require("http");
+const config = require("./config/config");
+const { Server } = require("socket.io");
 const { connectionHandler } = require("./handlers/connectionHandler");
-const app=express()
+const app = express();
+const authRouter = require("./src/router/auth.routes");
+const cookieParser = require("cookie-parser");
+const cors = require("cors");
+const connectToDB = require("./config/db");
 
-const httpServer=http.createServer(app)
-const io = new Server(httpServer,{
-    cors:{
-        origin:config.CORS_ORIGIN,
-        methods:config.CORS_METHODS
-    }
+const httpServer = http.createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: "http://localhost:5173/",
+  },
 });
 
+connectToDB();
+app.use(
+  cors({
+    origin: ["http://localhost:5173", "http://localhost:5174"],
+    credentials: true,
+  }),
+);
 
+app.use(cookieParser());
+app.use(express.json());
 
-connectionHandler(io)
+app.use(express.urlencoded({ extended: true }));
+
+app.use("/api/auth", authRouter);
+
+connectionHandler(io);
 
 // io.on('connection', (socket) => {
 //   console.log('a clint connected',socket.id);
-
-
-
 
 //   socket.on("sender",(senderData)=>{
 //         const{targetId,message}=senderData
@@ -32,7 +45,6 @@ connectionHandler(io)
 //         })
 
 //   })
-
 
 //   // Offer ko ek client se dusre client tak forward karna
 //   // Client A offer bhejta hai, hum use Client B tak forward karte hain
@@ -67,9 +79,8 @@ connectionHandler(io)
 //     })
 //   })
 
-  
 // });
 
-httpServer.listen(config.PORT,()=>{
-    console.log("server started ",config.PORT)
-})
+httpServer.listen(config.PORT, () => {
+  console.log("server started ", config.PORT);
+});
