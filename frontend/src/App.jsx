@@ -41,6 +41,7 @@ function App() {
   
   return (
     <div className="outer">
+      <h1>check</h1>
       <ChatSection
         socketID={socketID}
         allMessage={allMessage}
